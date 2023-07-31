@@ -2,54 +2,42 @@ package com.wsi.mheclient.impl;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.CommandLineRunner;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
+import org.springframework.stereotype.Component;
 
-import java.io.BufferedReader;
-import java.io.DataOutputStream;
 import java.io.IOException;
-import java.net.Socket;
 
-public class HeartBeatServiceImpl extends Thread {
+@Component
+@Order(Ordered.LOWEST_PRECEDENCE)
+public class HeartBeatServiceImpl extends Thread implements CommandLineRunner {
 
     private final Logger log = LoggerFactory.getLogger(HeartBeatServiceImpl.class);
-    private DataOutputStream out;
-    private BufferedReader in;
-    private Socket clientSocket;
-    private final String HEARTBEAT = "HEARTBEAT";
-    private final String HEARTBEAT_ACK = "ALIVE";
+
+    private final SocketClientImpl socketClientService;
 
     private boolean endThread = false;
 
-    public void setParams(DataOutputStream out, BufferedReader in, Socket clientSocket){
-        this.out = out;
-        this.in = in;
-        this.clientSocket = clientSocket;
+    public HeartBeatServiceImpl(SocketClientImpl socketClientService) {
+        this.socketClientService = socketClientService;
     }
 
-    public void setEndThread()
-    {
+    public void setEndThread() {
         this.endThread = true;
     }
 
     @Override
-    public void start() {
+    public void run(String... args) throws Exception {
+        log.info("Starting heart beats...");
         while (!endThread) {
             try {
-                String heartMsg = in.readLine();
-                if (HEARTBEAT.equals(heartMsg)) {
-                    log.info("Heart beat received from server.");
-                    byte stx = 0x02;
-                    byte etx = 0x03;
-                    //out.writeByte(stx);
-                    out.writeBytes(stx + HEARTBEAT_ACK + etx);
-                    //out.writeByte(etx);
-                    log.info("Heart beat acknowledged.");
-                }
-                Thread.sleep(1000);
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            } catch (InterruptedException e) {
+                socketClientService.sendMsg("KEEPALIVE", null);
+                Thread.sleep(30000);
+            } catch (IOException | InterruptedException e) {
                 throw new RuntimeException(e);
             }
         }
     }
 }
+

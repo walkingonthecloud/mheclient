@@ -6,15 +6,26 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.CommandLineRunner;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Service;
 
-import java.io.*;
+import java.io.BufferedReader;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.net.Socket;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.*;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
 @Service
+@Order(Ordered.HIGHEST_PRECEDENCE)
 public class SocketClientImpl implements SocketClient, CommandLineRunner {
 
     private final Logger log = LoggerFactory.getLogger(SocketClientImpl.class);
@@ -32,13 +43,10 @@ public class SocketClientImpl implements SocketClient, CommandLineRunner {
 
     private boolean connectionOpen = false;
 
-    private HeartBeatServiceImpl heartBeatService;
-
     private final LoadTestServiceImpl loadTestService;
 
     @Autowired
-    public SocketClientImpl(LoadTestServiceImpl loadTestService)
-    {
+    public SocketClientImpl(LoadTestServiceImpl loadTestService) {
         this.loadTestService = loadTestService;
     }
 
@@ -49,15 +57,10 @@ public class SocketClientImpl implements SocketClient, CommandLineRunner {
         in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
         log.info("Connected to server!");
         //connectionOpen = true;
-        //heartBeatService = new HeartBeatServiceImpl();
-        //heartBeatService.setParams(out, in, clientSocket);
-        //log.info("Starting heart beat listener thread...");
-        //heartBeatService.start();
         if (mockMode) {
             log.info("Starting load test from file...");
             loadTestService.sendMessages(clientSocket, out, in);
-        }
-        else
+        } else
             log.info("Load test mode is OFF, waiting for REST call to send socket message...");
     }
 
@@ -70,16 +73,47 @@ public class SocketClientImpl implements SocketClient, CommandLineRunner {
         byte etx = 0x03;
         log.info("Sending msg: {}", msg);
         out.writeByte(stx);
-        out.writeBytes(msg + "\n");
+        out.writeBytes(msg);
         out.writeByte(etx);
+        //out.flush();
         log.info("Message sent!");
         Thread.sleep(200);
         readAck(clientSocket);
         Instant after = Instant.now();
         long millis = Duration.between(before, after).toMillis();
         log.info("Time taken in milliseconds for the round-trip --------------------------> {}", millis);
-        roundTrips.put(olpn, millis);
+        if (olpn != null)
+            roundTrips.put(olpn, millis);
     }
+
+    @Override
+    public void sendKeep() throws IOException, InterruptedException {
+        sendMsg("00001KEEPALIVE", null);
+        readAck(clientSocket);
+    }
+
+//    @Override
+//    public Map<String, Long> send(List<String> oLPNs) throws IOException {
+//
+//        log.info("Starting to send MHE Messages for oLPN List...");
+//        roundTrips.put("TEST_STARTED", Instant.now().toEpochMilli());
+//
+//        ClassLoader classLoader = getClass().getClassLoader();
+//        String indshSample = IOUtils.toString(Objects.requireNonNull(classLoader.getResourceAsStream("PERF_INDSH.txt")));
+//
+//        oLPNs.forEach(olpn -> {
+//            try {
+//                sendMsg(indshSample.replaceFirst("<oLPN>", olpn), olpn);
+//                Thread.sleep(100);
+//            } catch (IOException | InterruptedException e) {
+//                throw new RuntimeException(e);
+//            }
+//        });
+//
+//        log.info("Test ended...use getStats() API to check timings.");
+//        roundTrips.put("TEST_ENDED", Instant.now().toEpochMilli());
+//        return roundTrips;
+//    }
 
     @Override
     public Map<String, Long> send(List<String> oLPNs) throws IOException {
@@ -90,14 +124,12 @@ public class SocketClientImpl implements SocketClient, CommandLineRunner {
         ClassLoader classLoader = getClass().getClassLoader();
         String indshSample = IOUtils.toString(Objects.requireNonNull(classLoader.getResourceAsStream("INDSH.txt")));
 
-        oLPNs.forEach(olpn -> {
-            try {
-                sendMsg(indshSample.replaceFirst("<oLPN>", olpn), olpn);
-                Thread.sleep(100);
-            } catch (IOException | InterruptedException e) {
-                throw new RuntimeException(e);
-            }
-        });
+        try {
+            sendMsg(indshSample, "K00000770");
+            Thread.sleep(100);
+        } catch (IOException | InterruptedException e) {
+            throw new RuntimeException(e);
+        }
 
         log.info("Test ended...use getStats() API to check timings.");
         roundTrips.put("TEST_ENDED", Instant.now().toEpochMilli());
@@ -105,23 +137,32 @@ public class SocketClientImpl implements SocketClient, CommandLineRunner {
     }
 
     private void readAck(Socket clientSocket) {
-        InputStream inputStream= null;
+        InputStream inputStream = null;
         InputStreamReader inputStreamReader = null;
         StringBuffer stringBuffer = null;
+        log.info("Reading ACK from server.");
+        try {
+            Thread.sleep(250);
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
         int x;
         try {
             inputStream = clientSocket.getInputStream();
 
             inputStreamReader = new InputStreamReader(inputStream);
             stringBuffer = new StringBuffer();
-            while (true) {
-                x = inputStreamReader.read();
-                if (x == 0x03 || x == -1)break; // read until ETX
-                if (x != 0x02)
-                    stringBuffer.append((char) x);
+            if (inputStreamReader.ready()) {
+                while (true) {
+                    x = inputStreamReader.read();
+                    if (x == 0x03 || x == -1) break; // read until ETX
+                    if (x != 0x02)
+                        stringBuffer.append((char) x);
+                }
             }
-        }
-         catch (IOException e) {
+            else
+                log.info("No ACK received from Server.");
+        } catch (IOException e) {
             throw new RuntimeException(e);
         }
         String response = stringBuffer.toString();
@@ -135,7 +176,6 @@ public class SocketClientImpl implements SocketClient, CommandLineRunner {
         in.close();
         out.close();
         clientSocket.close();
-        heartBeatService.setEndThread();
         log.info("Connection closed.");
     }
 

@@ -21,6 +21,6 @@ public class LoadTestServiceImpl implements LoadTestService {
     public void sendMessages(Socket socket, DataOutputStream out, BufferedReader in) throws IOException {
 
         ClassLoader classLoader = getClass().getClassLoader();
-        String socketMessage = IOUtils.toString(Objects.requireNonNull(classLoader.getResourceAsStream("INDSH.txt")));
+        String socketMessage = IOUtils.toString(Objects.requireNonNull(classLoader.getResourceAsStream("PERF_INDSH.txt")));
     }
 }

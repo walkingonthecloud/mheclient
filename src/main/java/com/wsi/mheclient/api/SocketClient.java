@@ -9,6 +9,8 @@ public interface SocketClient {
     void init(String ip, String port) throws IOException;
     void sendMsg(String msg, String olpn) throws IOException, InterruptedException;
 
+    void sendKeep() throws IOException, InterruptedException;
+
     Map<String, Long> send(List<String> oLPNs) throws IOException;
     void closeConnection() throws IOException;
 
